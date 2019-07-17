@@ -1,41 +1,51 @@
+#!/usr/bin/env python3
+
 import numpy as np
 import scipy as scp
+from scipy import ndimage
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics.pairwise import euclidean_distances
 import networkx as nx
+from polylabel import polylabel
 import cv2
 #from skimage.feature import greycomatrix, greycoprops
 
 
 class Extract_CGT_Features():
         
-        def __init__(self, rgb_image, mask_image, threshold):
+        def __init__(self, rgb_image, mask_image, min_threshold, max_threshold=5000):
                 self.rgb = rgb_image
-                self.mask = mask_image
-                ret, contours = cv2.findContours(self.mask,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
+                try:
+                        mask_image = cv2.cvtColor(mask_image , cv2.COLOR_BGR2GRAY)
+                        #mask_image = ndimage.grey_erosion(mask_image)
+                        _,self.mask = cv2.threshold(mask_image,254,255,cv2.THRESH_BINARY)
+                except:
+                        print('already in grayscale')
+                contours, _ = cv2.findContours(self.mask,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
                 contours = np.array(contours)
-                contour_locations = self.get_valid_contours(contours,threshold)
+                contour_locations = self.get_valid_contours(contours,min_threshold, max_threshold)
+                #print(contour_locations)
                 self.contours = contours[contour_locations]
                 self.centroids = self.get_centroids()
-                self.create_probability_matrix_for_subgraphs(self.centroids)
+                (self.subby,self.graph,self.cen_pos_dict) = self.create_probability_matrix_for_subgraphs(self.centroids)
 
-        def get_valid_contours(self, contours, threshold):
+        def get_valid_contours(self, contours, min_threshold, max_threshold):
                 areas = np.array([])
                 for idx, cnt in enumerate(contours):
                         area = cv2.contourArea(cnt)
                         areas = np.append(areas,area)
-                valid_contours = np.where(areas > threshold)[0]
+                valid_contours = np.where((areas > min_threshold) & (areas < max_threshold))[0]
                 return valid_contours
         
         def get_centroids(self):
                 centroids = np.array([0,0])
                 for idx,cnt in enumerate(self.contours):
-                        M = cv2.moments(cnt)
-                        cx = int(M['m10']/M['m00'])
-                        cy = int(M['m01']/M['m00'])
-                        coords = np.array([cx,cy])
+#                        M = cv2.moments(cnt)
+#                        cx = int(M['m10']/M['m00'])
+#                        cy = int(M['m01']/M['m00'])
+                        coords = np.array(polylabel(cnt))
                         centroids = np.vstack([centroids,coords])
                 centroids = centroids[1:]
                 return centroids
@@ -85,7 +95,8 @@ class Extract_CGT_Features():
                         co_mat = self.create_cooccurence_matrix(angles)
                         norm_co_mat = np.divide(co_mat,np.sum(np.sum(co_mat)))
                         norm_co_mats[idx] = norm_co_mat
-                print(norm_co_mats)
+
+                return (norm_co_mats,G,pos)
                 
 
 
@@ -110,3 +121,32 @@ class Extract_CGT_Features():
                         data[j,j] = np.sqrt(data[j,j])
                 df = pd.DataFrame(data=data)
                 return df
+
+        def plot_graph_on_image(self):
+                fig1 = plt.figure()
+                ax1 = fig1.add_subplot(111)
+
+                ax1.imshow(self.rgb)
+                nx.draw(self.graph,pos=self.cen_pos_dict,ax=ax1, node_size=5)
+
+                fig1.show()
+                plt.show()
+#                fig = plt.figure()
+#                plt.imshow(img)
+#                fig.show()
+#                plt.show()
+#                ax1 = fig1.add_subplot(111)
+#                ax1.imshow(im_to_use)
+#                nx.draw(self.G,pos=self.pos,ax=ax1, node_size=5)
+
+        def plot_arbitrary_on_image(self,graph,pos,rgb=None):
+                if rgb is None:
+                        rgb = self.rgb
+                fig1 = plt.figure()
+                ax1 = fig1.add_subplot(111)
+
+                ax1.imshow(rgb)
+                nx.draw(graph,pos=pos,ax=ax1, node_size=5)
+
+                fig1.show()
+                
